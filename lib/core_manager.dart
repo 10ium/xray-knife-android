@@ -8,10 +8,11 @@ import 'dart:convert';
 class CoreManager {
   static const String _repoOwner = "lilendian0x00";
   static const String _repoName = "xray-knife";
-  // دقت کنید: نام فایل در ریلیزهای گیت‌هاب باید دقیق باشد
   static const String _assetName = "Xray-knife-android-arm64-v8a.zip";
-  
   static const String webUiUrl = "http://127.0.0.1:8080";
+
+  // استفاده از پروکسی برای دانلود سریع‌تر و عبور از تحریم
+  static const String _downloadProxy = "https://mirror.ghproxy.com/";
 
   Process? _process;
 
@@ -29,7 +30,7 @@ class CoreManager {
     await stopCore();
     final path = await _executablePath;
     
-    if (!await File(path).exists()) throw Exception("Core not found!");
+    if (!await File(path).exists()) throw Exception("Core binary not found!");
 
     await Process.run('chmod', ['+x', path]);
 
@@ -69,7 +70,12 @@ class CoreManager {
           );
           
           if (asset != null) {
-            return [true, latestTag, asset['browser_download_url']];
+            // لینک اصلی گیت‌هاب را می‌گیریم
+            String originalUrl = asset['browser_download_url'];
+            // لینک را به پروکسی می‌چسبانیم تا دانلود شود
+            String fastUrl = _downloadProxy + originalUrl;
+            
+            return [true, latestTag, fastUrl];
           }
         }
       }
@@ -79,7 +85,6 @@ class CoreManager {
     return [false, null, null];
   }
 
-  // تغییر مهم: کالبک حالا دو عدد دریافت می‌کند (دریافتی، کل)
   Future<void> downloadAndInstall(String downloadUrl, Function(int received, int total) onProgress) async {
     await stopCore();
     
@@ -87,26 +92,40 @@ class CoreManager {
     final zipPath = "${dir.path}/update.zip";
     
     final dio = Dio();
-    // دانلود با گزارش دقیق حجم
-    await dio.download(downloadUrl, zipPath, onReceiveProgress: (rec, total) {
-      onProgress(rec, total);
-    });
-
-    final inputStream = InputFileStream(zipPath);
-    final archive = ZipDecoder().decodeBuffer(inputStream);
     
-    for (final file in archive) {
-      if (file.isFile) {
-        final outputStream = OutputFileStream('${dir.path}/xray-knife');
-        file.writeContent(outputStream);
-        outputStream.close();
+    // تنظیمات برای جلوگیری از تایم‌اوت
+    dio.options.connectTimeout = const Duration(seconds: 30);
+    dio.options.receiveTimeout = const Duration(minutes: 5);
+
+    try {
+      await dio.download(downloadUrl, zipPath, onReceiveProgress: (rec, total) {
+        onProgress(rec, total);
+      });
+
+      final inputStream = InputFileStream(zipPath);
+      final archive = ZipDecoder().decodeBuffer(inputStream);
+      
+      for (final file in archive) {
+        if (file.isFile) {
+          final outputStream = OutputFileStream('${dir.path}/xray-knife');
+          file.writeContent(outputStream);
+          outputStream.close();
+        }
       }
-    }
-    inputStream.close();
-    
-    await File(zipPath).delete();
+      inputStream.close();
+      
+      await File(zipPath).delete();
 
-    final execPath = await _executablePath;
-    await Process.run('chmod', ['+x', execPath]);
+      final execPath = await _executablePath;
+      await Process.run('chmod', ['+x', execPath]);
+      
+    } catch (e) {
+      print("Download error: $e");
+      // اگر فایل خراب دانلود شد پاکش کن
+      if (await File(zipPath).exists()) {
+        await File(zipPath).delete();
+      }
+      throw e; // خطا را پرتاب کن تا در UI نمایش داده شود
+    }
   }
 }
