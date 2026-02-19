@@ -108,39 +108,64 @@ class _XrayAppState extends State<XrayApp> {
     }
   }
 
-  // --- بخش جدید و حرفه‌ای دانلود ---
   void _showProfessionalDownloadDialog(String url, String version) {
     showDialog(
       context: context,
-      barrierDismissible: false, // کاربر نمی‌تواند پنجره را ببندد
+      barrierDismissible: false,
       builder: (context) {
         return StatefulBuilder(builder: (context, setState) {
           double progress = 0;
           String downloadedSize = "0 MB";
           String totalSize = "...";
           String percentage = "0%";
+          bool isIndeterminate = false;
 
-          // شروع دانلود
           _core.downloadAndInstall(url, (received, total) {
-            // آپدیت کردن UI داخل دیالوگ
             setState(() {
+              downloadedSize = _formatBytes(received);
+              
               if (total != -1) {
+                // اگر حجم مشخص است
                 progress = received / total;
                 percentage = "${(progress * 100).toStringAsFixed(1)}%";
-                downloadedSize = _formatBytes(received);
                 totalSize = _formatBytes(total);
+                isIndeterminate = false;
+              } else {
+                // اگر حجم نامشخص است (Chunked Transfer)
+                isIndeterminate = true;
+                totalSize = "Unknown";
+                percentage = "...";
               }
             });
 
-            if (progress >= 1.0) {
-               // دانلود تمام شد، کمی صبر و سپس بستن
+            // شرط پایان: اگر حجم مشخص بود و ۱۰۰٪ شد، یا اگر حجم نامشخص بود ولی دانلود تمام شد (اینجا باگ منطقی نداریم چون تابع وقتی تمام شود success برمیگرداند)
+            if (!isIndeterminate && progress >= 1.0) {
                Future.delayed(const Duration(seconds: 1), () {
-                 Navigator.pop(context);
-                 _currentVersion = version;
-                 _saveVersion(version);
-                 _startAndShow();
+                 // بررسی اینکه دیالوگ هنوز باز است یا نه
+                 if (Navigator.canPop(context)) {
+                    Navigator.pop(context);
+                    _currentVersion = version;
+                    _saveVersion(version);
+                    _startAndShow();
+                 }
                });
             }
+          }).then((_) {
+              // وقتی دانلود کامل شد (چه با حجم معلوم چه نامعلوم)
+               if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                  _currentVersion = version;
+                  _saveVersion(version);
+                  _startAndShow();
+               }
+          }).catchError((error) {
+              // بستن دیالوگ در صورت خطا
+              if (Navigator.canPop(context)) {
+                 Navigator.pop(context);
+              }
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Download Failed: $error")));
+              // تلاش مجدد برای شروع (شاید فایل قبلی موجود باشد)
+              _initSequence();
           });
 
           return AlertDialog(
@@ -159,9 +184,9 @@ class _XrayAppState extends State<XrayApp> {
                 const Text("Installing latest Xray engine...", style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 20),
                 
-                // نوار پیشرفت
+                // نوار پیشرفت: اگر حجم نامشخص باشد، می‌چرخد
                 LinearProgressIndicator(
-                  value: progress > 0 ? progress : null, // اگر حجم معلوم نبود، نامحدود نشان بده
+                  value: isIndeterminate ? null : (progress > 0 ? progress : null),
                   backgroundColor: Colors.grey[200],
                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
                   minHeight: 8,
@@ -169,7 +194,6 @@ class _XrayAppState extends State<XrayApp> {
                 
                 const SizedBox(height: 10),
                 
-                // اطلاعات عددی
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -185,7 +209,6 @@ class _XrayAppState extends State<XrayApp> {
     );
   }
 
-  // تابع کمکی برای تبدیل بایت به مگابایت
   String _formatBytes(int bytes) {
     if (bytes <= 0) return "0 B";
     const suffixes = ["B", "KB", "MB", "GB"];
@@ -202,7 +225,7 @@ class _XrayAppState extends State<XrayApp> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: _isCoreRunning 
-        ? null // وقتی وب باز است، نوار بالا را مخفی کن تا تمام صفحه شود
+        ? null 
         : AppBar(title: const Text("Xray Manager")), 
       body: SafeArea(
         child: _isCoreRunning && _webController != null
@@ -216,10 +239,9 @@ class _XrayAppState extends State<XrayApp> {
                       child: CircularProgressIndicator(strokeWidth: 3),
                     ),
                     const SizedBox(height: 20),
-                    Text(_status, style: const TextStyle(fontSize: 16, color: Colors.grey)),
+                    Text(_status, style: const TextStyle(fontSize: 16, color: Colors.grey), textAlign: TextAlign.center),
                     const SizedBox(height: 40),
-                    // دکمه تلاش مجدد در صورت خطا
-                    if (_status.startsWith("Error"))
+                    if (_status.startsWith("Error") || _status.startsWith("Download Failed"))
                       ElevatedButton.icon(
                         onPressed: () => _initSequence(),
                         icon: const Icon(Icons.refresh),
@@ -229,7 +251,6 @@ class _XrayAppState extends State<XrayApp> {
                 ),
               ),
       ),
-      // دکمه شناور برای دسترسی به آپدیت وقتی وب باز است
       floatingActionButton: _isCoreRunning 
         ? FloatingActionButton.small(
             onPressed: () => _checkForUpdates(),
