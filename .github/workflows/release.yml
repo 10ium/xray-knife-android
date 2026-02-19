@@ -1,95 +1,66 @@
-name: Auto-Updater Bot
+name: Build & Publish Release
 
 on:
-  # 1. اجرا طبق برنامه زمانی (هر روز ساعت 00:00 به وقت جهانی)
-  schedule:
-    - cron: '0 0 * * *'
-  # 2. امکان اجرای دستی برای تست
+  # این گردش کار زمانی اجرا می‌شود که شما یک ریلیز جدید در گیت‌هاب بسازید
+  release:
+    types: [created]
+  # یا می‌توانید دستی اجرایش کنید
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  check_and_build:
+  build_and_release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # --- مرحله هوشمند: بررسی آپدیت ---
-      - name: Check for Updates
-        id: check
-        run: |
-          # 1. دریافت آخرین تگ از مخزن اصلی (سازنده xray-knife)
-          UPSTREAM_TAG=$(curl -s https://api.github.com/repos/lilendian0x00/xray-knife/releases/latest | jq -r .tag_name)
-          echo "Latest Upstream Version: $UPSTREAM_TAG"
-          
-          # 2. بررسی اینکه آیا ما قبلاً این نسخه را ریلیز کرده‌ایم؟
-          # ما از API گیت‌هاب خودمان سوال می‌کنیم
-          HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" https://api.github.com/repos/${{ github.repository }}/releases/tags/$UPSTREAM_TAG)
-          
-          if [ "$HTTP_CODE" -eq "200" ]; then
-            echo "✅ We already have version $UPSTREAM_TAG. Skipping build."
-            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
-          else
-            echo "🚀 New version found ($UPSTREAM_TAG)! Starting build..."
-            echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
-            echo "VERSION_TAG=$UPSTREAM_TAG" >> $GITHUB_ENV
-          fi
-
-      # --- مراحل زیر فقط اگر آپدیت لازم باشد اجرا می‌شوند ---
-      
       - name: Setup Java
-        if: env.UPDATE_NEEDED == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
       - name: Setup Flutter
-        if: env.UPDATE_NEEDED == 'true'
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      - name: Download Xray Core (Specific Version)
-        if: env.UPDATE_NEEDED == 'true'
+      # دانلود فایل باینری و قرار دادن در assets (جهت اطمینان از وجود فایل)
+      - name: Download Xray Core Binary
         run: |
           mkdir -p assets
-          # دانلود نسخه دقیق شناسایی شده
-          wget -O xray.zip https://github.com/lilendian0x00/xray-knife/releases/download/${{ env.VERSION_TAG }}/Xray-knife-android-arm64-v8a.zip
+          wget -O xray.zip https://github.com/lilendian0x00/xray-knife/releases/download/v9.9.9/Xray-knife-android-arm64-v8a.zip
           unzip -o xray.zip
           mv xray-knife assets/xray-knife
           chmod +x assets/xray-knife
+          ls -l assets/
 
       - name: Get Dependencies
-        if: env.UPDATE_NEEDED == 'true'
         run: flutter pub get
 
+      # ساخت فایل APK
       - name: Build APK
-        if: env.UPDATE_NEEDED == 'true'
         run: flutter build apk --release --no-tree-shake-icons
 
+      # امضا کردن فایل APK (حیاتی برای نصب روی اندروید)
       - name: Sign APK
-        if: env.UPDATE_NEEDED == 'true'
         run: |
-          keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias my-alias -storepass 123456 -keypass 123456 -dname "CN=XrayManager, OU=App, O=GitHub, L=Internet, C=US"
+          keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias my-alias -storepass 123456 -keypass 123456 -dname "CN=XrayManager, OU=App, O=GitHub, L=World, S=Internet, C=US"
           
+          # پیدا کردن ابزار apksigner
           ANDROID_BUILD_TOOLS_VERSION=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -n 1)
           APKSIGNER=$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION/apksigner
           
+          # امضا کردن
           $APKSIGNER sign --ks release.jks --ks-pass pass:123456 --out signed-app.apk build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Publish Release Automatically
-        if: env.UPDATE_NEEDED == 'true'
+      # آپلود فایل امضا شده به ریلیز گیت‌هاب
+      - name: Upload APK to Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ env.VERSION_TAG }}
-          name: Xray-Knife ${{ env.VERSION_TAG }}
           files: signed-app.apk
-          body: |
-            آپدیت خودکار به نسخه ${{ env.VERSION_TAG }}
-            هسته اصلی: xray-knife ${{ env.VERSION_TAG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
