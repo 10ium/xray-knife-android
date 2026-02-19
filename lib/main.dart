@@ -4,7 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core_manager.dart';
 
 void main() {
-  runApp(const MaterialApp(home: XrayApp()));
+  runApp(const MaterialApp(
+    debugShowCheckedModeBanner: false,
+    home: XrayApp(),
+  ));
 }
 
 class XrayApp extends StatefulWidget {
@@ -20,7 +23,7 @@ class _XrayAppState extends State<XrayApp> {
   
   bool _isCoreRunning = false;
   String _status = "Initializing...";
-  String _currentVersion = "v0.0.0";
+  String _currentVersion = "v0.0.0"; 
 
   @override
   void initState() {
@@ -30,6 +33,15 @@ class _XrayAppState extends State<XrayApp> {
   }
 
   Future<void> _loadVersion() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _currentVersion = prefs.getString('xray_version') ?? "v0.0.0";
+    });
+  }
+
+  Future<void> _saveVersion(String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('xray_version', version);
   }
 
   Future<void> _initSequence() async {
@@ -47,10 +59,11 @@ class _XrayAppState extends State<XrayApp> {
     setState(() => _status = "Starting Xray Core...");
     try {
       await _core.startCore();
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(const Duration(seconds: 3)); 
       
       _webController = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(const Color(0x00000000))
         ..loadRequest(Uri.parse(CoreManager.webUiUrl));
 
       setState(() {
@@ -63,7 +76,7 @@ class _XrayAppState extends State<XrayApp> {
   }
 
   Future<void> _checkForUpdates({bool forceDownload = false}) async {
-    setState(() => _status = "Checking for updates...");
+    if (!forceDownload) setState(() => _status = "Checking for updates...");
     
     final result = await _core.checkUpdate(_currentVersion);
     final bool hasUpdate = result[0];
@@ -86,67 +99,145 @@ class _XrayAppState extends State<XrayApp> {
         if (confirm != true) return;
       }
 
-      _showDownloadDialog(downloadUrl!, newVersion!);
+      _showProfessionalDownloadDialog(downloadUrl!, newVersion!);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No updates available.")));
-      if (!forceDownload && !_isCoreRunning) _startAndShow();
+      if (!forceDownload) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No updates available.")));
+      }
+      if (!_isCoreRunning) _startAndShow();
     }
   }
 
-  void _showDownloadDialog(String url, String version) {
+  // --- بخش جدید و حرفه‌ای دانلود ---
+  void _showProfessionalDownloadDialog(String url, String version) {
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: false, // کاربر نمی‌تواند پنجره را ببندد
       builder: (context) {
         return StatefulBuilder(builder: (context, setState) {
           double progress = 0;
-          
-          _core.downloadAndInstall(url, (p) {
-            setState(() => progress = p);
-            if (p >= 1.0) {
-              Navigator.pop(context);
-              _currentVersion = version;
-              _startAndShow();
+          String downloadedSize = "0 MB";
+          String totalSize = "...";
+          String percentage = "0%";
+
+          // شروع دانلود
+          _core.downloadAndInstall(url, (received, total) {
+            // آپدیت کردن UI داخل دیالوگ
+            setState(() {
+              if (total != -1) {
+                progress = received / total;
+                percentage = "${(progress * 100).toStringAsFixed(1)}%";
+                downloadedSize = _formatBytes(received);
+                totalSize = _formatBytes(total);
+              }
+            });
+
+            if (progress >= 1.0) {
+               // دانلود تمام شد، کمی صبر و سپس بستن
+               Future.delayed(const Duration(seconds: 1), () {
+                 Navigator.pop(context);
+                 _currentVersion = version;
+                 _saveVersion(version);
+                 _startAndShow();
+               });
             }
           });
 
           return AlertDialog(
-            title: const Text("Downloading Core..."),
-            content: LinearProgressIndicator(value: progress),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            title: Row(
+              children: const [
+                Icon(Icons.cloud_download, color: Colors.blueAccent),
+                SizedBox(width: 10),
+                Text("Downloading Core"),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Installing latest Xray engine...", style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 20),
+                
+                // نوار پیشرفت
+                LinearProgressIndicator(
+                  value: progress > 0 ? progress : null, // اگر حجم معلوم نبود، نامحدود نشان بده
+                  backgroundColor: Colors.grey[200],
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
+                  minHeight: 8,
+                ),
+                
+                const SizedBox(height: 10),
+                
+                // اطلاعات عددی
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("$downloadedSize / $totalSize", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    Text(percentage, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                  ],
+                ),
+              ],
+            ),
           );
         });
       },
     );
   }
 
+  // تابع کمکی برای تبدیل بایت به مگابایت
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return "0 B";
+    const suffixes = ["B", "KB", "MB", "GB"];
+    var i = 0;
+    double d = bytes.toDouble();
+    while (d >= 1024 && i < suffixes.length - 1) {
+      d /= 1024;
+      i++;
+    }
+    return "${d.toStringAsFixed(1)} ${suffixes[i]}";
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Xray Knife Manager"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _webController?.reload(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.system_update),
-            onPressed: () => _checkForUpdates(),
-          ),
-        ],
-      ),
-      body: _isCoreRunning && _webController != null
-          ? WebViewWidget(controller: _webController!)
-          : Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 20),
-                  Text(_status),
-                ],
+      appBar: _isCoreRunning 
+        ? null // وقتی وب باز است، نوار بالا را مخفی کن تا تمام صفحه شود
+        : AppBar(title: const Text("Xray Manager")), 
+      body: SafeArea(
+        child: _isCoreRunning && _webController != null
+            ? WebViewWidget(controller: _webController!)
+            : Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 50, height: 50,
+                      child: CircularProgressIndicator(strokeWidth: 3),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(_status, style: const TextStyle(fontSize: 16, color: Colors.grey)),
+                    const SizedBox(height: 40),
+                    // دکمه تلاش مجدد در صورت خطا
+                    if (_status.startsWith("Error"))
+                      ElevatedButton.icon(
+                        onPressed: () => _initSequence(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text("Retry"),
+                      )
+                  ],
+                ),
               ),
-            ),
+      ),
+      // دکمه شناور برای دسترسی به آپدیت وقتی وب باز است
+      floatingActionButton: _isCoreRunning 
+        ? FloatingActionButton.small(
+            onPressed: () => _checkForUpdates(),
+            child: const Icon(Icons.system_update),
+            tooltip: "Check Updates",
+            backgroundColor: Colors.white.withOpacity(0.8),
+          ) 
+        : null,
     );
   }
 }
