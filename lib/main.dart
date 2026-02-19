@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // نیاز به اضافه کردن است
+import 'package:shared_preferences/shared_preferences.dart';
 import 'core_manager.dart';
 
 void main() {
@@ -20,7 +20,7 @@ class _XrayAppState extends State<XrayApp> {
   
   bool _isCoreRunning = false;
   String _status = "Initializing...";
-  String _currentVersion = "v0.0.0"; // نسخه فرضی اولیه
+  String _currentVersion = "v0.0.0";
 
   @override
   void initState() {
@@ -30,8 +30,6 @@ class _XrayAppState extends State<XrayApp> {
   }
 
   Future<void> _loadVersion() async {
-    // اینجا می‌توانید از SharedPreferences برای ذخیره نسخه واقعی استفاده کنید
-    // فعلاً برای سادگی هاردکد می‌کنیم یا نال
   }
 
   Future<void> _initSequence() async {
@@ -49,7 +47,7 @@ class _XrayAppState extends State<XrayApp> {
     setState(() => _status = "Starting Xray Core...");
     try {
       await _core.startCore();
-      await Future.delayed(const Duration(seconds: 2)); // صبر برای بالا آمدن سرور
+      await Future.delayed(const Duration(seconds: 2));
       
       _webController = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -67,7 +65,6 @@ class _XrayAppState extends State<XrayApp> {
   Future<void> _checkForUpdates({bool forceDownload = false}) async {
     setState(() => _status = "Checking for updates...");
     
-    // دریافت اطلاعات آپدیت
     final result = await _core.checkUpdate(_currentVersion);
     final bool hasUpdate = result[0];
     final String? newVersion = result[1];
@@ -75,7 +72,6 @@ class _XrayAppState extends State<XrayApp> {
 
     if (forceDownload || (hasUpdate && downloadUrl != null)) {
       if (!forceDownload) {
-        // پرسش از کاربر
         bool? confirm = await showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -90,7 +86,6 @@ class _XrayAppState extends State<XrayApp> {
         if (confirm != true) return;
       }
 
-      // شروع دانلود
       _showDownloadDialog(downloadUrl!, newVersion!);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No updates available.")));
@@ -106,13 +101,12 @@ class _XrayAppState extends State<XrayApp> {
         return StatefulBuilder(builder: (context, setState) {
           double progress = 0;
           
-          // شروع دانلود بلافاصله
           _core.downloadAndInstall(url, (p) {
             setState(() => progress = p);
             if (p >= 1.0) {
-              Navigator.pop(context); // بستن دیالوگ
-              _currentVersion = version; // ذخیره نسخه جدید (باید در پرففرنس ذخیره شود)
-              _startAndShow(); // اجرای مجدد
+              Navigator.pop(context);
+              _currentVersion = version;
+              _startAndShow();
             }
           });
 
