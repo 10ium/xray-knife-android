@@ -1,66 +1,32 @@
-name: Build & Publish Release
+name: xray_knife_android
+description: A GUI wrapper for Xray-Knife tool.
+publish_to: 'none'
+version: 1.0.0+1
 
-on:
-  # این گردش کار زمانی اجرا می‌شود که شما یک ریلیز جدید در گیت‌هاب بسازید
-  release:
-    types: [created]
-  # یا می‌توانید دستی اجرایش کنید
-  workflow_dispatch:
+environment:
+  sdk: '>=3.0.0 <4.0.0'
 
-permissions:
-  contents: write
+dependencies:
+  flutter:
+    sdk: flutter
+  # پکیج‌های مورد نیاز
+  webview_flutter: ^4.7.0
+  path_provider: ^2.1.2
+  dio: ^5.4.1
+  # نکته مهم: نسخه آرشیو را روی 3.6.1 قفل می‌کنیم تا متد decodeBuffer کار کند
+  archive: 3.6.1
+  package_info_plus: ^5.0.1
+  http: ^1.2.0
+  permission_handler: ^11.3.0
+  # این پکیج جا افتاده بود که الان اضافه شد
+  shared_preferences: ^2.2.2
 
-jobs:
-  build_and_release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      # دانلود فایل باینری و قرار دادن در assets (جهت اطمینان از وجود فایل)
-      - name: Download Xray Core Binary
-        run: |
-          mkdir -p assets
-          wget -O xray.zip https://github.com/lilendian0x00/xray-knife/releases/download/v9.9.9/Xray-knife-android-arm64-v8a.zip
-          unzip -o xray.zip
-          mv xray-knife assets/xray-knife
-          chmod +x assets/xray-knife
-          ls -l assets/
-
-      - name: Get Dependencies
-        run: flutter pub get
-
-      # ساخت فایل APK
-      - name: Build APK
-        run: flutter build apk --release --no-tree-shake-icons
-
-      # امضا کردن فایل APK (حیاتی برای نصب روی اندروید)
-      - name: Sign APK
-        run: |
-          keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias my-alias -storepass 123456 -keypass 123456 -dname "CN=XrayManager, OU=App, O=GitHub, L=World, S=Internet, C=US"
-          
-          # پیدا کردن ابزار apksigner
-          ANDROID_BUILD_TOOLS_VERSION=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -n 1)
-          APKSIGNER=$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION/apksigner
-          
-          # امضا کردن
-          $APKSIGNER sign --ks release.jks --ks-pass pass:123456 --out signed-app.apk build/app/outputs/flutter-apk/app-release.apk
-
-      # آپلود فایل امضا شده به ریلیز گیت‌هاب
-      - name: Upload APK to Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: signed-app.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/xray-knife
