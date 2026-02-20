@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // برای دسترسی به کلیپ‌بورد اضافه شد
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core_manager.dart';
@@ -203,6 +204,7 @@ class _MainScreenState extends State<MainScreen> {
         return SafeArea(child: WebViewWidget(controller: _webController!));
       
       case AppState.error:
+        // --- رابط کاربری جدید ارور با قابلیت کپی لاگ ---
         return Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -212,13 +214,52 @@ class _MainScreenState extends State<MainScreen> {
                 const Icon(Icons.error_outline, color: Colors.redAccent, size: 60),
                 const SizedBox(height: 16),
                 const Text("Something went wrong", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text(_errorMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+                const SizedBox(height: 16),
+                
+                // باکس ترمینال‌مانند برای نمایش ارور
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  height: 150, // محدود کردن ارتفاع که صفحه شلوغ نشود
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                  ),
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      _errorMessage,
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.grey),
+                    ),
+                  ),
+                ),
+                
                 const SizedBox(height: 24),
-                FilledButton.icon(
-                  onPressed: _initialize,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text("Retry"),
+                
+                // دکمه‌های کپی و تلاش مجدد
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        // کپی کردن متن ارور در کلیپ‌بورد سیستم
+                        await Clipboard.setData(ClipboardData(text: _errorMessage));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Error log copied to clipboard!")),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy, size: 18),
+                      label: const Text("Copy Log"),
+                    ),
+                    const SizedBox(width: 16),
+                    FilledButton.icon(
+                      onPressed: _initialize,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text("Retry"),
+                    ),
+                  ],
                 )
               ],
             ),
