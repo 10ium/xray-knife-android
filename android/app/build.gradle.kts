@@ -4,36 +4,28 @@ import java.io.FileInputStream
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // استفاده از پلاگین رسمی فلاتر
+    // پلاگین مدرن فلاتر برای پروژه‌های جدید
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-def localProperties = new Properties()
-def localPropertiesFile = rootProject.file("local.properties")
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
-    localPropertiesFile.withReader('UTF-8') { reader ->
-        localProperties.load(reader)
+    localPropertiesFile.inputStream().use { stream ->
+        localProperties.load(stream)
     }
 }
 
-def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
-if (flutterVersionCode == null) {
-    flutterVersionCode = "1"
-}
-
-def flutterVersionName = localProperties.getProperty("flutter.versionName")
-if (flutterVersionName == null) {
-    flutterVersionName = "1.0"
-}
+val flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
+val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
 
 android {
     namespace = "com.example.xray_knife_android"
     
-    // --- تغییر مهم اینجاست ---
-    // افزایش نسخه کامپایل به 34 برای رفع خطای کتابخانه‌ها
+    // حل مشکل کتابخانه‌های جدید (Datastore) با کامپایل روی نسخه 34
     compileSdk = 34
     
-    // حذف NDK اجباری تا گریدل خودش بهترین نسخه را دانلود کند
+    // اجازه دهید فلاتر خودش بهترین نسخه NDK را انتخاب کند
     // ndkVersion = "..." 
 
     compileOptions {
@@ -54,19 +46,21 @@ android {
         minSdk = 21
         
         // --- نکته حیاتی ---
-        // تارگت همچنان روی 28 می‌ماند تا خطای Permission Denied ندهد
+        // تارگت روی 28 قفل شد تا مشکل Permission Denied حل شود
         targetSdk = 28
         
-        versionCode = flutterVersionCode.toInteger()
+        versionCode = flutterVersionCode.toInt()
         versionName = flutterVersionName
     }
 
     buildTypes {
         release {
-            // برای ساین کردن در محیط گیت‌هاب از کانفیگ دیباگ استفاده می‌کنیم
+            // در محیط گیت‌هاب از کلید دیباگ برای امضا استفاده می‌کنیم
             signingConfig = signingConfigs.getByName("debug")
-            minifyEnabled = false
-            shrinkResources = false
+            
+            // در کاتلین باید از isMinifyEnabled استفاده شود
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -76,6 +70,5 @@ flutter {
 }
 
 dependencies {
-    // آپدیت نسخه کاتلین برای سازگاری بهتر
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.20")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.0")
 }
