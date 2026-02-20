@@ -1,80 +1,67 @@
-def localProperties = new Properties()
-def localPropertiesFile = rootProject.file('local.properties')
+import java.util.Properties
+import java.io.FileInputStream
+
+plugins {
+    id("com.android.application")
+    id("kotlin-android")
+    // پلاگین فلاتر باید به روش دیگری اعمال شود یا در فایل تنظیمات اصلی باشد
+    // اما برای سادگی در kts معمولا به این شکل استفاده می‌شود:
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
-    localPropertiesFile.withReader('UTF-8') { reader ->
-        localProperties.load(reader)
+    localPropertiesFile.inputStream().use { stream ->
+        localProperties.load(stream)
     }
 }
 
-def flutterRoot = localProperties.getProperty('flutter.sdk')
-if (flutterRoot == null) {
-    throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")
-}
-
-def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
-if (flutterVersionCode == null) {
-    flutterVersionCode = '1'
-}
-
-def flutterVersionName = localProperties.getProperty('flutter.versionName')
-if (flutterVersionName == null) {
-    flutterVersionName = '1.0'
-}
-
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
+val flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
+val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
 
 android {
-    namespace "com.example.xray_knife_android"
-    // استفاده از نسخه استاندارد برای کامپایل
-    compileSdkVersion 33
-    ndkVersion flutter.ndkVersion
+    namespace = "com.example.xray_knife_android"
+    compileSdk = 33
+    ndkVersion = "25.1.8937393" // نسخه پیش‌فرض NDK فلاتر
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = "1.8"
     }
 
     sourceSets {
-        main.java.srcDirs += 'src/main/kotlin'
+        getByName("main").java.srcDirs("src/main/kotlin")
     }
 
     defaultConfig {
-        // شناسه یکتای اپلیکیشن شما
-        applicationId "com.example.xray_knife_android"
+        applicationId = "com.example.xray_knife_android"
+        minSdk = 21
+        // نکته حیاتی برای اجرای باینری:
+        targetSdk = 28
         
-        // حداقل نسخه پشتیبانی شده (اندروید 5.0)
-        minSdkVersion 21
-        
-        // --- نکته حیاتی برای دور زدن خطای Permission Denied در لینوکس ---
-        // محدود کردن تارگت روی API 28 (اندروید 9) تا سیستم‌عامل اجازه اجرای فایل باینری دانلود شده را بدهد.
-        targetSdkVersion 28
-        
-        // خواندن نسخه به صورت هوشمند از تنظیمات فلاتر
-        versionCode flutterVersionCode.toInteger()
-        versionName flutterVersionName
+        versionCode = flutterVersionCode.toInt()
+        versionName = flutterVersionName
     }
 
     buildTypes {
         release {
-            // امضای خودکار اپلیکیشن در محیط‌های بیلد (گیت‌هاب)
-            signingConfig signingConfigs.debug
-            // جلوگیری از فشرده‌سازی بیش از حد که ممکن است فایل‌های حساس را خراب کند
-            minifyEnabled false
-            shrinkResources false
+            // امضای دیباگ برای راحتی در محیط گیت‌هاب (می‌توانید بعداً کی‌استور اصلی بگذارید)
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
 
 flutter {
-    source '../..'
+    source = "../.."
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.0")
 }
