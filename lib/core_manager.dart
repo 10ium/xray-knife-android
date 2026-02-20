@@ -109,7 +109,7 @@ class CoreManager {
       await dio.download(
         downloadUrl, 
         zipPath, 
-        onReceiveProgress: onReceiveProgress
+        onReceiveProgress: onDownloadProgress // خطای تایپی اینجا بود که اصلاح شد
       );
 
       // 2. Extraction Phase
