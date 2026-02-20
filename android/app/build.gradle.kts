@@ -19,12 +19,9 @@ val flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "
 val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
 
 android {
-    namespace = "com.example.xray_knife_android"
-    
-    // ارتقا به نسخه 36 برای سازگاری با پلاگین‌های جدید فلاتر
-    compileSdk = 36
-    
-    // ndkVersion = "..." (Let Flutter choose)
+    // اصلاح شناسه پکیج مطابق با اسکرین‌شات شما
+    namespace = "com.xrayknife.app.xray_knife_android"
+    compileSdk = 34 // مطابق با نیاز اندروید 14
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -35,26 +32,18 @@ android {
         jvmTarget = "1.8"
     }
 
-    sourceSets {
-        getByName("main").java.srcDirs("src/main/kotlin")
-    }
-
     defaultConfig {
-        applicationId = "com.example.xray_knife_android"
+        applicationId = "com.xrayknife.app.xray_knife_android"
         minSdk = 21
-        
-        // نکته حیاتی: روی 28 نگه می‌داریم برای اجرای باینری Xray
-        targetSdk = 28
+        // قرار دادن روی 33 برای پایداری در اندروید 14
+        targetSdk = 33
         
         versionCode = flutterVersionCode.toInt()
         versionName = flutterVersionName
     }
     
-    // --- تغییر جدید و مهم: غیرفعال کردن چک‌های سختگیرانه ---
     lint {
-        // نادیده گرفتن خطای "هدف قدیمی" تا بیلد شکست نخورد
         disable += "ExpiredTargetSdkVersion"
-        // نادیده گرفتن بقیه خطاهای غیرحیاتی
         abortOnError = false
         checkReleaseBuilds = false
     }
