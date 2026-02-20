@@ -29,8 +29,8 @@ class CoreManager {
     
     if (!await File(path).exists()) throw Exception("Core binary is missing. Please update.");
 
-    // Ensure executable permissions
-    await Process.run('chmod', ['+x', path]);
+    // دادن بالاترین سطح دسترسی ممکن در لینوکس/اندروید برای جلوگیری از Permission Denied
+    await Process.run('chmod', ['777', path]);
 
     print("Starting core at $path...");
     _process = await Process.start(
@@ -56,7 +56,6 @@ class CoreManager {
   Future<Map<String, dynamic>?> checkUpdate(String currentVersion) async {
     try {
       final url = Uri.parse("https://api.github.com/repos/$_repoOwner/$_repoName/releases/latest");
-      // Timeout added to prevent infinite hanging
       final response = await http.get(url).timeout(const Duration(seconds: 15));
       
       if (response.statusCode == 200) {
@@ -71,7 +70,6 @@ class CoreManager {
           );
           
           if (asset != null) {
-            // Returning direct GitHub link
             return {
               'hasUpdate': true,
               'version': latestTag,
@@ -100,7 +98,6 @@ class CoreManager {
     
     final dio = Dio();
     
-    // Strict timeouts for direct GitHub downloads
     dio.options.connectTimeout = const Duration(seconds: 20);
     dio.options.receiveTimeout = const Duration(minutes: 5);
 
@@ -109,11 +106,11 @@ class CoreManager {
       await dio.download(
         downloadUrl, 
         zipPath, 
-        onReceiveProgress: onDownloadProgress // خطای تایپی اینجا بود که اصلاح شد
+        onReceiveProgress: onDownloadProgress 
       );
 
       // 2. Extraction Phase
-      onExtracting(); // Notify UI that download is done, extraction started
+      onExtracting(); 
       
       final inputStream = InputFileStream(zipPath);
       final archive = ZipDecoder().decodeBuffer(inputStream);
@@ -129,11 +126,11 @@ class CoreManager {
       
       // 3. Cleanup & Permissions
       await File(zipPath).delete();
-      await Process.run('chmod', ['+x', execPath]);
+      // دادن بالاترین سطح دسترسی پس از استخراج
+      await Process.run('chmod', ['777', execPath]);
       
     } catch (e) {
       print("Installation error: $e");
-      // Cleanup broken files on failure
       if (await File(zipPath).exists()) await File(zipPath).delete();
       throw Exception("Installation failed: ${e.toString()}");
     }
