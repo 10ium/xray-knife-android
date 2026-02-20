@@ -4,26 +4,37 @@ import java.io.FileInputStream
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // پلاگین فلاتر باید به روش دیگری اعمال شود یا در فایل تنظیمات اصلی باشد
-    // اما برای سادگی در kts معمولا به این شکل استفاده می‌شود:
+    // استفاده از پلاگین رسمی فلاتر
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
-    localPropertiesFile.inputStream().use { stream ->
-        localProperties.load(stream)
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
     }
 }
 
-val flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
-val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+if (flutterVersionCode == null) {
+    flutterVersionCode = "1"
+}
+
+def flutterVersionName = localProperties.getProperty("flutter.versionName")
+if (flutterVersionName == null) {
+    flutterVersionName = "1.0"
+}
 
 android {
     namespace = "com.example.xray_knife_android"
-    compileSdk = 33
-    ndkVersion = "25.1.8937393" // نسخه پیش‌فرض NDK فلاتر
+    
+    // --- تغییر مهم اینجاست ---
+    // افزایش نسخه کامپایل به 34 برای رفع خطای کتابخانه‌ها
+    compileSdk = 34
+    
+    // حذف NDK اجباری تا گریدل خودش بهترین نسخه را دانلود کند
+    // ndkVersion = "..." 
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -41,19 +52,21 @@ android {
     defaultConfig {
         applicationId = "com.example.xray_knife_android"
         minSdk = 21
-        // نکته حیاتی برای اجرای باینری:
+        
+        // --- نکته حیاتی ---
+        // تارگت همچنان روی 28 می‌ماند تا خطای Permission Denied ندهد
         targetSdk = 28
         
-        versionCode = flutterVersionCode.toInt()
+        versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
     }
 
     buildTypes {
         release {
-            // امضای دیباگ برای راحتی در محیط گیت‌هاب (می‌توانید بعداً کی‌استور اصلی بگذارید)
+            // برای ساین کردن در محیط گیت‌هاب از کانفیگ دیباگ استفاده می‌کنیم
             signingConfig = signingConfigs.getByName("debug")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            minifyEnabled = false
+            shrinkResources = false
         }
     }
 }
@@ -63,5 +76,6 @@ flutter {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.0")
+    // آپدیت نسخه کاتلین برای سازگاری بهتر
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.20")
 }
