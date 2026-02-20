@@ -4,209 +4,326 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core_manager.dart';
 
 void main() {
-  runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: XrayApp(),
-  ));
+  runApp(const XrayApp());
 }
 
-class XrayApp extends StatefulWidget {
+// App Status Enum for bulletproof state management
+enum AppState { initial, checking, downloading, extracting, starting, running, error }
+
+class XrayApp extends StatelessWidget {
   const XrayApp({super.key});
 
   @override
-  State<XrayApp> createState() => _XrayAppState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Xray Manager',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.light,
+        ),
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.dark,
+        ),
+      ),
+      themeMode: ThemeMode.system,
+      home: const MainScreen(),
+    );
+  }
 }
 
-class _XrayAppState extends State<XrayApp> {
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
   final CoreManager _core = CoreManager();
   WebViewController? _webController;
   
-  bool _isCoreRunning = false;
-  String _status = "Initializing...";
+  AppState _appState = AppState.initial;
+  String _errorMessage = "";
   String _currentVersion = "v0.0.0"; 
 
   @override
   void initState() {
     super.initState();
-    _loadVersion();
-    _initSequence();
+    _initialize();
   }
 
-  Future<void> _loadVersion() async {
+  Future<void> _initialize() async {
+    setState(() => _appState = AppState.checking);
+    
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _currentVersion = prefs.getString('xray_version') ?? "v0.0.0";
-    });
-  }
+    _currentVersion = prefs.getString('xray_version') ?? "v0.0.0";
 
-  Future<void> _saveVersion(String version) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('xray_version', version);
-  }
-
-  Future<void> _initSequence() async {
     bool installed = await _core.isInstalled();
     
     if (!installed) {
-      setState(() => _status = "Core missing. Checking for download...");
-      _checkForUpdates(forceDownload: true);
+      await _checkForUpdates(forceDownload: true);
     } else {
-      _startAndShow();
+      await _startEngine();
     }
   }
 
-  Future<void> _startAndShow() async {
-    setState(() => _status = "Starting Xray Core...");
+  Future<void> _startEngine() async {
+    setState(() => _appState = AppState.starting);
+    
     try {
       await _core.startCore();
+      
+      // Wait for the local server to fully spin up
       await Future.delayed(const Duration(seconds: 3)); 
       
       _webController = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(const Color(0x00000000))
+        ..setBackgroundColor(Colors.transparent)
         ..loadRequest(Uri.parse(CoreManager.webUiUrl));
 
-      setState(() {
-        _isCoreRunning = true;
-        _status = "Running";
-      });
+      setState(() => _appState = AppState.running);
     } catch (e) {
-      setState(() => _status = "Error: $e");
+      setState(() {
+        _appState = AppState.error;
+        _errorMessage = e.toString();
+      });
     }
   }
 
   Future<void> _checkForUpdates({bool forceDownload = false}) async {
-    if (!forceDownload) setState(() => _status = "Checking for updates...");
-    
-    final result = await _core.checkUpdate(_currentVersion);
-    final bool hasUpdate = result[0];
-    final String? newVersion = result[1];
-    final String? downloadUrl = result[2];
-
-    if (forceDownload || (hasUpdate && downloadUrl != null)) {
-      if (!forceDownload) {
-        bool? confirm = await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Update Available"),
-            content: Text("New version $newVersion is available. Update now?"),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Update")),
-            ],
-          ),
-        );
-        if (confirm != true) return;
-      }
-
-      _showProfessionalDownloadDialog(downloadUrl!, newVersion!);
-    } else {
-      if (!forceDownload) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No updates available.")));
-      }
-      if (!_isCoreRunning) _startAndShow();
+    if (!forceDownload) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Checking for updates..."), duration: Duration(seconds: 1)),
+      );
     }
-  }
 
-  void _showProfessionalDownloadDialog(String url, String version) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
-          double progress = 0;
-          String downloadedSize = "0 MB";
-          String totalSize = "...";
-          String percentage = "0%";
-          bool isIndeterminate = false;
+    try {
+      final updateInfo = await _core.checkUpdate(_currentVersion);
+      
+      if (updateInfo?['hasUpdate'] == true) {
+        final newVersion = updateInfo!['version'];
+        final downloadUrl = updateInfo['url'];
 
-          _core.downloadAndInstall(url, (received, total) {
-            setState(() {
-              downloadedSize = _formatBytes(received);
-              
-              if (total != -1) {
-                // اگر حجم مشخص است
-                progress = received / total;
-                percentage = "${(progress * 100).toStringAsFixed(1)}%";
-                totalSize = _formatBytes(total);
-                isIndeterminate = false;
-              } else {
-                // اگر حجم نامشخص است (Chunked Transfer)
-                isIndeterminate = true;
-                totalSize = "Unknown";
-                percentage = "...";
-              }
-            });
-
-            // شرط پایان: اگر حجم مشخص بود و ۱۰۰٪ شد، یا اگر حجم نامشخص بود ولی دانلود تمام شد (اینجا باگ منطقی نداریم چون تابع وقتی تمام شود success برمیگرداند)
-            if (!isIndeterminate && progress >= 1.0) {
-               Future.delayed(const Duration(seconds: 1), () {
-                 // بررسی اینکه دیالوگ هنوز باز است یا نه
-                 if (Navigator.canPop(context)) {
-                    Navigator.pop(context);
-                    _currentVersion = version;
-                    _saveVersion(version);
-                    _startAndShow();
-                 }
-               });
-            }
-          }).then((_) {
-              // وقتی دانلود کامل شد (چه با حجم معلوم چه نامعلوم)
-               if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                  _currentVersion = version;
-                  _saveVersion(version);
-                  _startAndShow();
-               }
-          }).catchError((error) {
-              // بستن دیالوگ در صورت خطا
-              if (Navigator.canPop(context)) {
-                 Navigator.pop(context);
-              }
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Download Failed: $error")));
-              // تلاش مجدد برای شروع (شاید فایل قبلی موجود باشد)
-              _initSequence();
-          });
-
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            title: Row(
-              children: const [
-                Icon(Icons.cloud_download, color: Colors.blueAccent),
-                SizedBox(width: 10),
-                Text("Downloading Core"),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text("Installing latest Xray engine...", style: TextStyle(color: Colors.grey)),
-                const SizedBox(height: 20),
-                
-                // نوار پیشرفت: اگر حجم نامشخص باشد، می‌چرخد
-                LinearProgressIndicator(
-                  value: isIndeterminate ? null : (progress > 0 ? progress : null),
-                  backgroundColor: Colors.grey[200],
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
-                  minHeight: 8,
-                ),
-                
-                const SizedBox(height: 10),
-                
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("$downloadedSize / $totalSize", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    Text(percentage, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                  ],
-                ),
+        // Ask user if not forced
+        if (!forceDownload) {
+          bool? confirm = await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("New Engine Available"),
+              content: Text("Version $newVersion is ready. Do you want to update now?"),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Later")),
+                FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Update")),
               ],
             ),
           );
+          if (confirm != true) return;
+        }
+
+        await _startDownloadProcess(downloadUrl, newVersion);
+      } else {
+        if (!forceDownload) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("You are on the latest version.")),
+          );
+        }
+        if (_appState != AppState.running) _startEngine();
+      }
+    } catch (e) {
+      if (forceDownload) {
+        setState(() {
+          _appState = AppState.error;
+          _errorMessage = e.toString();
         });
-      },
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _startDownloadProcess(String url, String newVersion) async {
+    // Show modern bottom sheet for download progress
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => DownloadSheet(
+        url: url,
+        coreManager: _core,
+        onComplete: () async {
+          Navigator.pop(context); // Close sheet
+          
+          // Save new version
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('xray_version', newVersion);
+          _currentVersion = newVersion;
+          
+          _startEngine();
+        },
+        onError: (err) {
+          Navigator.pop(context);
+          setState(() {
+            _appState = AppState.error;
+            _errorMessage = err;
+          });
+        },
+      ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      // Modern Animated transition between states
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 500),
+        child: _buildBody(),
+      ),
+      floatingActionButton: _appState == AppState.running 
+        ? FloatingActionButton(
+            onPressed: () => _checkForUpdates(),
+            child: const Icon(Icons.sync),
+            tooltip: "Check for updates",
+          ) 
+        : null,
+    );
+  }
+
+  Widget _buildBody() {
+    switch (_appState) {
+      case AppState.running:
+        return SafeArea(child: WebViewWidget(controller: _webController!));
+      
+      case AppState.error:
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.redAccent, size: 60),
+                const SizedBox(height: 16),
+                const Text("Something went wrong", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(_errorMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: _initialize,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Retry"),
+                )
+              ],
+            ),
+          ),
+        );
+
+      default:
+        // Splash / Loading Screen
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.rocket_launch, size: 50, color: Theme.of(context).colorScheme.primary),
+              ),
+              const SizedBox(height: 30),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 20),
+              Text(
+                _getStatusText(),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: 1.2),
+              ),
+            ],
+          ),
+        );
+    }
+  }
+
+  String _getStatusText() {
+    switch (_appState) {
+      case AppState.checking: return "CHECKING SYSTEM...";
+      case AppState.starting: return "STARTING ENGINE...";
+      default: return "INITIALIZING...";
+    }
+  }
+}
+
+// --- Modern Download Bottom Sheet Widget ---
+class DownloadSheet extends StatefulWidget {
+  final String url;
+  final CoreManager coreManager;
+  final VoidCallback onComplete;
+  final Function(String) onError;
+
+  const DownloadSheet({
+    super.key,
+    required this.url,
+    required this.coreManager,
+    required this.onComplete,
+    required this.onError,
+  });
+
+  @override
+  State<DownloadSheet> createState() => _DownloadSheetState();
+}
+
+class _DownloadSheetState extends State<DownloadSheet> {
+  double _progress = 0;
+  String _downloadedSize = "0 MB";
+  String _totalSize = "...";
+  bool _isExtracting = false;
+  bool _isIndeterminate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startDownload();
+  }
+
+  Future<void> _startDownload() async {
+    try {
+      await widget.coreManager.downloadAndInstall(
+        downloadUrl: widget.url,
+        onDownloadProgress: (received, total) {
+          if (!mounted) return;
+          setState(() {
+            _downloadedSize = _formatBytes(received);
+            if (total != -1) {
+              _progress = received / total;
+              _totalSize = _formatBytes(total);
+              _isIndeterminate = false;
+            } else {
+              _isIndeterminate = true;
+              _totalSize = "Unknown";
+            }
+          });
+        },
+        onExtracting: () {
+          if (!mounted) return;
+          setState(() {
+            _isExtracting = true;
+          });
+        },
+      );
+      
+      if (mounted) widget.onComplete();
+
+    } catch (e) {
+      if (mounted) widget.onError(e.toString());
+    }
   }
 
   String _formatBytes(int bytes) {
@@ -223,42 +340,40 @@ class _XrayAppState extends State<XrayApp> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: _isCoreRunning 
-        ? null 
-        : AppBar(title: const Text("Xray Manager")), 
-      body: SafeArea(
-        child: _isCoreRunning && _webController != null
-            ? WebViewWidget(controller: _webController!)
-            : Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 50, height: 50,
-                      child: CircularProgressIndicator(strokeWidth: 3),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(_status, style: const TextStyle(fontSize: 16, color: Colors.grey), textAlign: TextAlign.center),
-                    const SizedBox(height: 40),
-                    if (_status.startsWith("Error") || _status.startsWith("Download Failed"))
-                      ElevatedButton.icon(
-                        onPressed: () => _initSequence(),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text("Retry"),
-                      )
-                  ],
-                ),
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_isExtracting ? Icons.unarchive : Icons.cloud_download, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 12),
+              Text(
+                _isExtracting ? "Extracting Files..." : "Downloading Core...",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          LinearProgressIndicator(
+            value: (_isIndeterminate || _isExtracting) ? null : _progress,
+            borderRadius: BorderRadius.circular(8),
+            minHeight: 10,
+          ),
+          const SizedBox(height: 12),
+          if (!_isExtracting)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("$_downloadedSize / $_totalSize", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                if (!_isIndeterminate)
+                  Text("${(_progress * 100).toStringAsFixed(1)}%", style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+              ],
+            ),
+        ],
       ),
-      floatingActionButton: _isCoreRunning 
-        ? FloatingActionButton.small(
-            onPressed: () => _checkForUpdates(),
-            child: const Icon(Icons.system_update),
-            tooltip: "Check Updates",
-            backgroundColor: Colors.white.withOpacity(0.8),
-          ) 
-        : null,
     );
   }
 }
